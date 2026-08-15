@@ -1,12 +1,11 @@
 use embassy_stm32::mode::Async;
 use embassy_stm32::usart::{ Uart, UartTx, Error };
 
-
-use crate::sdi12;
+use crate::sdi12::{self, Sdi12};
 use sdi12::{ Sdi12Error, Sdi12Command };
 
 
-pub async fn receive(usart: &mut Uart<'_, Async>) -> Result<(), Error> {
+pub async fn receive(usart: &mut Uart<'_, Async>, sdi12: &mut Sdi12<'_>) -> Result<(), Error> {
     let mut rx_buf = [0u8; 64];
     let mut tx_buf = [0u8; 256];
 
@@ -15,9 +14,9 @@ pub async fn receive(usart: &mut Uart<'_, Async>) -> Result<(), Error> {
     match usart_rx.read_until_idle(&mut rx_buf).await {
         Ok(bytes_read) => {
             if let Ok(cmd_str) = core::str::from_utf8(&rx_buf[..bytes_read]) {
-                match get_response(cmd_str, &mut tx_buf).await {
+                match get_response(sdi12, cmd_str, &mut tx_buf).await {
                     Ok(size) if size > 0 => {
-                        if let Err(e) = usart.write(&tx_buf[..size]).await {
+                        if let Err(e) = usart_tx.write(&tx_buf[..size]).await {
                             Err(e)
                         } else {
                             Ok(())
@@ -42,32 +41,71 @@ pub async fn receive(usart: &mut Uart<'_, Async>) -> Result<(), Error> {
     }
 }
 
-pub async fn get_response<'a>(cmd_str: &'a str, output: &mut [u8]) -> Result<usize, Sdi12Error> {
+pub async fn get_response(sdi12: &mut Sdi12<'_>, cmd_str: &str, output: &mut [u8]) -> Result<usize, Sdi12Error> {
     let parsed_cmd: Sdi12Command = parse_cmd(cmd_str)?; 
-
-    let response: &[u8] = match parsed_cmd {
-        Sdi12Command::Ping => b"PONG\r\n",
+    
+    let bytes_to_send = match parsed_cmd {
+        Sdi12Command::Ping => {
+            let msg = b"PONG\r\n";
+            output[..msg.len()].copy_from_slice(msg);
+            msg.len() // Return the size
+        }
+        
         Sdi12Command::Scan { start_addr, end_addr } => {
-            // INSERT SCAN FUNCTION CALL HERE
-            // but for now I am just going to return 
-            // so that I can test the parser
-            b"SCAN handler\r\n"
+            if start_addr.is_whitespace() || end_addr.is_whitespace() {
+                let msg = b"SCAN <START_ADDR>,<END_ADDR>\r\n";
+                output[..msg.len()].copy_from_slice(msg);
+                return Ok(msg.len());
+            }
+
+            let mut addr = start_addr as u8;
+            let mut cursor = 0;
+
+            defmt::info!("Start: {}, End: {}", start_addr, end_addr);
+
+            loop {
+                let msg = [addr, b'!'];
+                defmt::info!("Output Function: {=[u8]:a}", msg);
+
+                let bytes_read = match sdi12.query_device(&msg, &mut output[cursor..]).await {
+                    Ok(b) => b,
+                    Err(e) => {
+                        match e {
+                            Sdi12Error::Timeout => 0,
+                            _ => { return Err(e) },
+                        }
+                    }
+                } ;
+                
+                cursor += bytes_read;
+
+                if addr >= (end_addr as u8) { return Ok(cursor); }
+                else { addr += 1; }
+            }
         },
-        Sdi12Command::Raw { sdi12_cmd } => {
-            // INSERT RAW FUNCTION CALL HERE
-            // again, testing parser
-            b"RAW handler\r\n"
+        
+        Sdi12Command::Raw { sdi12_cmd } if sdi12_cmd.len() > 0 => {
+            // Pass the whole `output` buffer in. 
+            // The driver returns exactly how many bytes the sensor replied with.
+            let bytes_read = sdi12.query_device(sdi12_cmd.as_bytes(), output).await?;
+            
+            bytes_read // Return the size
         },
-        Sdi12Command::Help => b"COMMANDS: PING, SCAN <START>,<END>, RAW <SDI_CMD>\r\n",
+        
+        Sdi12Command::Raw { sdi12_cmd: _ } => {
+            let msg = b"RAW <SDI12_CMD>\r\n";
+            output[..msg.len()].copy_from_slice(msg);
+            msg.len()
+        }
+        
+        Sdi12Command::Help => {
+            let msg = b"COMMANDS: PING, SCAN <START>,<END>, RAW <SDI_CMD>\r\n";
+            output[..msg.len()].copy_from_slice(msg);
+            msg.len()
+        }
     };
 
-    if output.len() < response.len() {
-        return Err(Sdi12Error::UartError);
-    }
-
-    output[..response.len()].copy_from_slice(response);
-
-    Ok(response.len())
+    Ok(bytes_to_send)
 }
 
 

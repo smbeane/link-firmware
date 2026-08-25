@@ -1,3 +1,19 @@
+use embassy_hal_internal::Peri;
+use embassy_stm32::gpio::{Level, Output, Speed};
+use embassy_stm32::mode::Async;
+use embassy_stm32::peripherals::{DMA1_CH4, DMA1_CH5, PA9, USART1};
+use embassy_stm32::usart::{self, Config, Uart};
+use embassy_time::{Timer, with_timeout};
+
+use crate::Irqs;
+
+/* TODO: implement more commands
+
+    Original plan was to parse all of the data locally
+    and then send to host, could integrate now
+
+*/
+#[derive(Debug, PartialEq)]
 pub enum Sdi12Command<'a> {
     Ping,
     Scan { start_addr: char, end_addr: char },
@@ -5,74 +21,121 @@ pub enum Sdi12Command<'a> {
     Help,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, defmt::Format)]
 pub enum Sdi12Error {
-    Timeout,            // Timeout on the SDI12 bus
-    InvalidCommand,     // Command doesn't have something like !
-    InvalidResponse,    // Response is not readable
-    UartError,           // Something wrong with UART
+    Timeout,              // Timeout on the SDI12 bus
+    InvalidSDI12Command,  // Command doesn't have something like !
+    InvalidSerialCommand, // Problem parsing the serial input
+    InvalidResponse,      // SDI12 Response is not readable
+    UartError,            // Something wrong with UART
 }
 
-pub async fn handle_uart<'a>(cmd_str: &'a str, output: &mut [u8]) -> Result<usize, Sdi12Error> {
-    let parsed_cmd: Sdi12Command = parse_serial_cmd(cmd_str)?; 
+/* TODO: allow for more than USART1, PA9, etc.
 
-    let response: &[u8] = match parsed_cmd {
-        Sdi12Command::Ping => b"PONG\r\n",
-        Sdi12Command::Scan { start_addr, end_addr } => {
-            // INSERT SCAN FUNCTION CALL HERE
-            // but for now I am just going to return 
-            // so that I can test the parser
-            b"SCAN handler\r\n"
-        },
-        Sdi12Command::Raw { sdi12_cmd } => {
-            // INSERT RAW FUNCTION CALL HERE
-            // again, testing parser
-            b"RAW handler\r\n"
-        },
-        Sdi12Command::Help => b"COMMANDS: PING, SCAN <START>,<END>, RAW <SDI_CMD>\r\n",
-    };
+    Initially tried to do this, the type for
+    irqs was giving quite a lot of issues
 
-    if output.len() < response.len() {
-        return Err(Sdi12Error::UartError);
-    }
-
-    output[..response.len()].copy_from_slice(response);
-
-    Ok(response.len())
+*/
+pub struct Sdi12<'a> {
+    uart: Peri<'a, USART1>,
+    pin: Peri<'a, PA9>,
+    tx_dma: Peri<'a, DMA1_CH4>,
+    rx_dma: Peri<'a, DMA1_CH5>,
+    irqs: Irqs,
 }
 
-pub fn parse_serial_cmd<'a>(cmd: &'a str) -> Result<Sdi12Command<'a>, Sdi12Error>{
-    let cmd = cmd.trim();
-
-    if cmd.is_empty() {
-        return Err(Sdi12Error::InvalidCommand);
-    }
-
-    let (instruction, args) = match cmd.split_once(' ') {
-        Some((inst, rest)) => (inst, rest.trim()),
-        None => (cmd, ""),
-    };
-    
-    match instruction {
-        "PING" => Ok(Sdi12Command::Ping),
-        
-        "SCAN" => {
-            let (start, end) = match args.split_once(',') {
-                Some((s, e)) => (s.trim(), e.trim()),
-                None => ("", ""),
-            };
-
-            let start_addr: char = start.chars().next().unwrap_or(' ');
-            let end_addr: char = end.chars().next().unwrap_or(' ');
-            Ok(Sdi12Command::Scan{ start_addr, end_addr })
+impl<'a> Sdi12<'a> {
+    pub fn new(
+        pin: Peri<'a, PA9>,
+        uart: Peri<'a, USART1>,
+        tx_dma: Peri<'a, DMA1_CH4>,
+        rx_dma: Peri<'a, DMA1_CH5>,
+        irqs: Irqs,
+    ) -> Self {
+        Sdi12 {
+            pin,
+            uart,
+            tx_dma,
+            rx_dma,
+            irqs,
         }
-        
-        "RAW" => Ok(Sdi12Command::Raw{sdi12_cmd: args}),
-        
-        
-        "HELP" => Ok(Sdi12Command::Help),
-        
-        _ => Err(Sdi12Error::InvalidCommand),
+    }
 
+    pub async fn query_device(
+        &mut self,
+        cmd: &[u8],
+        rx_buf: &mut [u8],
+    ) -> Result<usize, Sdi12Error> {
+        {
+            let mut break_pin = Output::new(self.pin.reborrow(), Level::High, Speed::Low);
+
+            Timer::after_micros(12000).await;
+
+            break_pin.set_low();
+            Timer::after_micros(8330).await;
+        }
+
+        // TODO: should config be a const?
+        let mut config = Config::default();
+
+        config.baudrate = 1200;
+        config.data_bits = usart::DataBits::DataBits7;
+        config.parity = usart::Parity::ParityEven;
+        config.invert_rx = true;
+        config.invert_tx = true;
+
+        let mut uart_hd = Uart::new_half_duplex(
+            self.uart.reborrow(),
+            self.pin.reborrow(),
+            self.tx_dma.reborrow(),
+            self.rx_dma.reborrow(),
+            self.irqs,
+            config,
+            usart::HalfDuplexReadback::NoReadback,
+        )
+        .map_err(|_| Sdi12Error::UartError)?;
+
+        uart_hd
+            .write(cmd)
+            .await
+            .map_err(|_| Sdi12Error::UartError)?;
+        Self::receive_response(&mut uart_hd, rx_buf).await
+    }
+
+    async fn receive_response(
+        uart: &mut Uart<'_, Async>,
+        rx_buf: &mut [u8],
+    ) -> Result<usize, Sdi12Error> {
+        let mut character = [0u8; 1];
+        let mut index: usize = 0;
+
+        let mut timeout = embassy_time::Duration::from_millis(100);
+
+        loop {
+            if index >= rx_buf.len() {
+                return Err(Sdi12Error::InvalidResponse); // response too long
+            }
+
+            match with_timeout(timeout, uart.read(&mut character))
+                .await
+                .map_err(|_| Sdi12Error::Timeout)?
+            {
+                Ok(()) => {
+                    let no_parity = character[0] & 0x7F;
+
+                    rx_buf[index] = no_parity;
+                    index += 1;
+
+                    if no_parity == '\n' as u8 {
+                        return Ok(index);
+                    }
+
+                    timeout = embassy_time::Duration::from_millis(15);
+                }
+                Err(_e) => {
+                    return Err(Sdi12Error::UartError);
+                }
+            };
+        }
     }
 }

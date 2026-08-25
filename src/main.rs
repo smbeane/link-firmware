@@ -22,18 +22,26 @@ bind_interrupts!(pub struct Irqs {
 
 });
 
-
-
 #[embassy_executor::main]
 async fn main(_spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
-    
-    let mut usart = Uart::new(p.USART2, p.PA3, p.PA2, p.DMA1_CH2, p.DMA1_CH3, Irqs, Config::default()).unwrap();
+
+    // TODO: rename usart and sdi12?
+    let mut usart = Uart::new(
+        p.USART2,
+        p.PA3,
+        p.PA2,
+        p.DMA1_CH2,
+        p.DMA1_CH3,
+        Irqs,
+        Config::default(),
+    )
+    .unwrap();
     let mut sdi12 = Sdi12::new(p.PA9, p.USART1, p.DMA1_CH4, p.DMA1_CH5, Irqs);
 
-    usart.write(b"Hello Embassy World!\r\n").await.unwrap();
     info!("Starting Program...");
 
+    // TODO: what happens if usart errors out?
     loop {
         info!("Reading!");
         match serial::receive(&mut usart, &mut sdi12).await {

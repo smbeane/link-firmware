@@ -1,3 +1,4 @@
+use defmt::{debug, warn};
 use embassy_stm32::gpio::{Flex, Pull, Speed};
 use embassy_stm32::peripherals::PC15;
 use embassy_time::{Duration, Instant};
@@ -37,6 +38,8 @@ impl<'a> Sdi12<'a> {
         cmd: &[u8],
         rx_buf: &mut [u8],
     ) -> Result<usize, Sdi12Error> {
+        debug!("SDI-12 transaction start: command={=[u8]}", cmd);
+
         self.pin.set_high();
         self.pin.set_as_output(Speed::Low);
         Self::wait_until(Instant::now() + Duration::from_millis(12));
@@ -50,7 +53,15 @@ impl<'a> Sdi12<'a> {
 
         self.pin.set_low();
         self.pin.set_as_input(Pull::None);
-        self.receive_response(rx_buf)
+        let result = self.receive_response(rx_buf);
+        match result {
+            Ok(size) => debug!(
+                "SDI-12 response complete: response={=[u8]}",
+                &rx_buf[..size]
+            ),
+            Err(ref error) => warn!("SDI-12 transaction failed: error={:?}", error),
+        }
+        result
     }
 
     fn write_byte(&mut self, byte: u8) {
@@ -80,7 +91,18 @@ impl<'a> Sdi12<'a> {
         let mut timeout = Duration::from_millis(100);
 
         loop {
-            self.wait_for_start(timeout)?;
+            if self.wait_for_start(timeout).is_err() {
+                if index == 0 {
+                    warn!("SDI-12 response timeout waiting for first start bit");
+                } else {
+                    warn!(
+                        "SDI-12 inter-character timeout: received={=usize} partial={=[u8]}",
+                        index,
+                        &rx_buf[..index]
+                    );
+                }
+                return Err(Sdi12Error::Timeout);
+            }
 
             let start = Instant::now();
             let mut byte = 0u8;
@@ -94,11 +116,24 @@ impl<'a> Sdi12<'a> {
             Self::wait_until(start + Duration::from_micros(Self::BIT_US * 17 / 2));
             let parity = self.logical_level();
             Self::wait_until(start + Duration::from_micros(Self::BIT_US * 19 / 2));
-            if parity != (byte.count_ones() & 1 != 0) || !self.logical_level() {
+            let expected_parity = byte.count_ones() & 1 != 0;
+            if parity != expected_parity {
+                warn!(
+                    "SDI-12 parity error: byte={=u8:#04x} received={=bool} expected={=bool}",
+                    byte, parity, expected_parity
+                );
+                return Err(Sdi12Error::InvalidResponse);
+            }
+            if !self.logical_level() {
+                warn!("SDI-12 stop-bit error: byte={=u8:#04x}", byte);
                 return Err(Sdi12Error::InvalidResponse);
             }
 
             if index >= rx_buf.len() {
+                warn!(
+                    "SDI-12 response buffer full: capacity={=usize}",
+                    rx_buf.len()
+                );
                 return Err(Sdi12Error::InvalidResponse);
             }
             rx_buf[index] = byte;

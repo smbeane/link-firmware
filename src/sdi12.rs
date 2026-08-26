@@ -8,6 +8,7 @@ pub enum Sdi12Command<'a> {
     Ping,
     Scan { start_addr: char, end_addr: char },
     Raw { sdi12_cmd: &'a str },
+    Tc { channel: usize },
     Help,
 }
 
@@ -17,6 +18,7 @@ pub enum Sdi12Error {
     InvalidSDI12Command,
     InvalidSerialCommand,
     InvalidResponse,
+    SpiError,
 }
 
 pub struct Sdi12<'a> {

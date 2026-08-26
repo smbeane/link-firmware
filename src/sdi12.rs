@@ -148,8 +148,15 @@ impl<'a> Sdi12<'a> {
 
     fn wait_for_start(&self, timeout: Duration) -> Result<(), Sdi12Error> {
         let deadline = Instant::now() + timeout;
+        while self.pin.is_high() {
+            if Instant::now() >= deadline {
+                warn!("SDI-12 bus stayed SPACE/high; never reached MARK/low");
+                return Err(Sdi12Error::Timeout);
+            }
+        }
         while !self.pin.is_high() {
             if Instant::now() >= deadline {
+                warn!("SDI-12 bus stayed MARK/low; no response start bit");
                 return Err(Sdi12Error::Timeout);
             }
         }

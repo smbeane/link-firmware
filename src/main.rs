@@ -15,11 +15,8 @@ mod sdi12;
 mod serial;
 
 bind_interrupts!(pub struct Irqs {
-    USART1 => usart::InterruptHandler<peripherals::USART1>;
     USART2 => usart::InterruptHandler<peripherals::USART2>;
     DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
-    DMA1_CH4_5_DMAMUX1_OVR => dma::InterruptHandler<peripherals::DMA1_CH4>, dma::InterruptHandler<peripherals::DMA1_CH5>;
-
 });
 
 #[embassy_executor::main]
@@ -37,7 +34,7 @@ async fn main(_spawner: Spawner) {
         Config::default(),
     )
     .unwrap();
-    let mut sdi12 = Sdi12::new(p.PA9, p.USART1, p.DMA1_CH4, p.DMA1_CH5, Irqs);
+    let mut sdi12 = Sdi12::new(p.PC15);
 
     info!("Starting Program...");
 

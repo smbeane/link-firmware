@@ -147,6 +147,5 @@ async fn handle_error(tx: &mut UartTx<'_, Async>, error: Sdi12Error) -> Result<(
         Sdi12Error::InvalidSDI12Command => tx.write(b"Invalid SDI12 Command\r\n").await,
         Sdi12Error::InvalidSerialCommand => tx.write(b"Invalid Serial Command\r\n").await,
         Sdi12Error::InvalidResponse => tx.write(b"Invalid SDI12 Response\r\n").await,
-        Sdi12Error::UartError => tx.write(b"UART Error\r\n").await,
     }
 }

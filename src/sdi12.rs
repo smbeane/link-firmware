@@ -29,7 +29,7 @@ impl<'a> Sdi12<'a> {
     pub fn new(pin: embassy_hal_internal::Peri<'a, PC15>) -> Self {
         let mut pin = Flex::new(pin);
         pin.set_low();
-        pin.set_as_input(Pull::None);
+        pin.set_as_input(Pull::Down);
         Self { pin }
     }
 
@@ -52,7 +52,7 @@ impl<'a> Sdi12<'a> {
         }
 
         self.pin.set_low();
-        self.pin.set_as_input(Pull::None);
+        self.pin.set_as_input(Pull::Down);
         let result = self.receive_response(rx_buf);
         match result {
             Ok(size) => debug!(

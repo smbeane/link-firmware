@@ -6,6 +6,7 @@ use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::spi::{Config as SpiConfig, MODE_1, Spi};
 use embassy_stm32::usart::{Config, Uart};
+use embassy_stm32::wdg::IndependentWatchdog;
 use embassy_stm32::{bind_interrupts, dma, peripherals, usart};
 use embassy_time::Timer;
 
@@ -24,8 +25,11 @@ bind_interrupts!(pub struct Irqs {
 });
 
 #[embassy_executor::main]
-async fn main(_spawner: Spawner) {
+async fn main(spawner: Spawner) {
     let p = embassy_stm32::init(Default::default());
+    let mut watchdog = IndependentWatchdog::new(p.IWDG, 15_000_000);
+    watchdog.unleash();
+    spawner.spawn(feed_watchdog(watchdog).unwrap());
 
     // TODO: rename usart and sdi12?
     let mut usart = Uart::new(
@@ -58,5 +62,13 @@ async fn main(_spawner: Spawner) {
                 warn!("Error, {:?}", e);
             }
         }
+    }
+}
+
+#[embassy_executor::task]
+async fn feed_watchdog(mut watchdog: IndependentWatchdog<'static, peripherals::IWDG>) -> ! {
+    loop {
+        watchdog.pet();
+        Timer::after_secs(5).await;
     }
 }

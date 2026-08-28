@@ -2,19 +2,49 @@
 name = "link-firmware"
 version = "0.1.0"
 edition = "2024"
+default-run = "link-firmware"
+
+[[bin]]
+name = "link-firmware"
+path = "src/main.rs"
+
+[[bin]]
+name = "tc-diagnostic"
+path = "src/bin/tc-diagnostic.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "sdi12-diagnostic"
+path = "src/bin/sdi12-diagnostic.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "uart-diagnostic"
+path = "src/bin/uart-diagnostic.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "sdi12-set-address-0-to-1"
+path = "src/bin/sdi12-set-address-0-to-1.rs"
+required-features = ["diagnostics"]
+
+[features]
+diagnostics = ["dep:defmt", "dep:defmt-rtt", "panic-probe/print-defmt"]
 
 [dependencies]
-embassy-stm32 = { version = "0.6.0", features = [ "defmt", "time-driver-any", "stm32g031k8", "memory-x", "unstable-pac", "exti"]  }
-embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "defmt"] }
-embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
-
-defmt = "1.0.1"
-defmt-rtt = "1.0.0"
+embassy-stm32 = { version = "0.6.0", features = ["time-driver-any", "stm32g031f6", "memory-x", "unstable-pac", "exti"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread"] }
+embassy-time = { version = "0.5.1", features = ["tick-hz-32_768"] }
+defmt = { version = "1.0.1", optional = true }
+defmt-rtt = { version = "1.0.0", optional = true }
 
 cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
 cortex-m-rt = "0.7.0"
-panic-probe = { version = "1.0.0", features = ["print-defmt"] }
+panic-probe = "1.0.0"
 embassy-hal-internal = "0.5.0"
 
 [profile.release]
+codegen-units = 1
 debug = 2
+lto = true
+opt-level = "z"

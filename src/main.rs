@@ -1,8 +1,6 @@
 #![no_std]
 #![no_main]
 
-use defmt::*;
-use defmt_rtt as _;
 use embassy_executor::Spawner;
 use embassy_stm32::spi::{Config as SpiConfig, MODE_1, Spi};
 use embassy_stm32::usart::{Config, Uart};
@@ -20,7 +18,7 @@ mod sdi12;
 mod serial;
 
 bind_interrupts!(pub struct Irqs {
-    USART2 => usart::InterruptHandler<peripherals::USART2>;
+    LPUART1 => usart::InterruptHandler<peripherals::LPUART1>;
     DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
 });
 
@@ -33,7 +31,7 @@ async fn main(spawner: Spawner) {
 
     // TODO: rename usart and sdi12?
     let mut usart = Uart::new(
-        p.USART2,
+        p.LPUART1,
         p.PA3,
         p.PA2,
         p.DMA1_CH2,
@@ -49,19 +47,9 @@ async fn main(spawner: Spawner) {
     let mut thermocouples = Max31856::new(spi, p.PA4, p.PA5).unwrap();
     Timer::after_millis(250).await;
 
-    info!("Starting Program...");
-
     // TODO: what happens if usart errors out?
     loop {
-        info!("Reading!");
-        match serial::receive(&mut usart, &mut sdi12, &mut thermocouples).await {
-            Ok(()) => {
-                info!("Received Command");
-            }
-            Err(e) => {
-                warn!("Error, {:?}", e);
-            }
-        }
+        let _ = serial::receive(&mut usart, &mut sdi12, &mut thermocouples).await;
     }
 }
 

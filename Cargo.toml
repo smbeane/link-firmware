@@ -28,6 +28,16 @@ name = "sdi12-set-address-0-to-1"
 path = "src/bin/sdi12-set-address-0-to-1.rs"
 required-features = ["diagnostics"]
 
+[[bin]]
+name = "sdi12-set-address-0-to-2"
+path = "src/bin/sdi12-set-address-0-to-2.rs"
+required-features = ["diagnostics"]
+
+[[bin]]
+name = "soil-best-effort-diagnostic"
+path = "src/bin/soil-best-effort-diagnostic.rs"
+required-features = ["diagnostics"]
+
 [features]
 diagnostics = ["dep:defmt", "dep:defmt-rtt", "panic-probe/print-defmt"]
 

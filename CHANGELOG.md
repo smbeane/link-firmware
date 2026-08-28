@@ -51,6 +51,16 @@
 - Added an onsite-only ST-Link utility that sends `0A1!` and verifies address `1`.
 - **Only run this binary while exactly one address-0 soil sensor is physically connected.** If both are connected, both can change to address 1 and remain in collision.
 
+### `src/bin/sdi12-set-address-0-to-2.rs`
+
+- Added the equivalent onsite-only ST-Link utility for `0A2!`, including verification of address 2.
+- The same physical-isolation warning applies: exactly one address-0 sensor may be connected.
+
+### `src/bin/soil-best-effort-diagnostic.rs`
+
+- Added continuous RTT polling of soil addresses 0, 1, and 2 every 10 seconds.
+- Every received value is explicitly marked `UNVERIFIED`, because shared-address collisions can corrupt data or expose only one sensor's response.
+
 ### `read-sensors.sh`
 
 - Added automatic 10-second UART polling for three soil addresses and two thermocouples.

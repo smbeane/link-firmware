@@ -10,6 +10,8 @@ tc-diagnostic = "run --release --features diagnostics --bin tc-diagnostic"
 sdi12-diagnostic = "run --release --features diagnostics --bin sdi12-diagnostic"
 uart-diagnostic = "run --release --features diagnostics --bin uart-diagnostic"
 sdi12-set-address-0-to-1 = "run --release --features diagnostics --bin sdi12-set-address-0-to-1"
+sdi12-set-address-0-to-2 = "run --release --features diagnostics --bin sdi12-set-address-0-to-2"
+soil-best-effort-diagnostic = "run --release --features diagnostics --bin soil-best-effort-diagnostic"
 
 [env]
 DEFMT_LOG = "trace"

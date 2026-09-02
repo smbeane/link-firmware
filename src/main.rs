@@ -13,15 +13,19 @@ use embassy_time::Timer;
 use panic_probe as _;
 
 use crate::max31856::Max31856;
-use crate::sdi12::Sdi12;
+use crate::sdi12::Sdi12Bitbang;
 
 mod max31856;
 mod sdi12;
 mod serial;
 
+
+// interrupts for serial bus
 bind_interrupts!(pub struct Irqs {
+    USART1=> usart::InterruptHandler<peripherals::USART1>;
     USART2 => usart::InterruptHandler<peripherals::USART2>;
     DMA1_CHANNEL2_3 => dma::InterruptHandler<peripherals::DMA1_CH2>, dma::InterruptHandler<peripherals::DMA1_CH3>;
+    DMA1_CH4_5_DMAMUX1_OVR => dma::InterruptHandler<peripherals::DMA1_CH4>, dma::InterruptHandler<peripherals::DMA1_CH5>;
 });
 
 #[embassy_executor::main]
@@ -31,8 +35,7 @@ async fn main(spawner: Spawner) {
     watchdog.unleash();
     spawner.spawn(feed_watchdog(watchdog).unwrap());
 
-    // TODO: rename usart and sdi12?
-    let mut usart = Uart::new(
+    let mut serial_bus = Uart::new(
         p.USART2,
         p.PA3,
         p.PA2,
@@ -42,7 +45,9 @@ async fn main(spawner: Spawner) {
         Config::default(),
     )
     .unwrap();
-    let mut sdi12 = Sdi12::new(p.PC15);
+
+    let mut sdi12_bus = Sdi12Bitbang::new(p.PC15.into());
+    
     let mut spi_config = SpiConfig::default();
     spi_config.mode = MODE_1;
     let spi = Spi::new_blocking(p.SPI1, p.PA1, p.PA7, p.PA6, spi_config);
@@ -54,7 +59,7 @@ async fn main(spawner: Spawner) {
     // TODO: what happens if usart errors out?
     loop {
         info!("Reading!");
-        match serial::receive(&mut usart, &mut sdi12, &mut thermocouples).await {
+        match serial::receive(&mut serial_bus, &mut sdi12_bus, &mut thermocouples).await {
             Ok(()) => {
                 info!("Received Command");
             }

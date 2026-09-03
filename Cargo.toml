@@ -16,5 +16,9 @@ cortex-m-rt = "0.7.0"
 panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 embassy-hal-internal = "0.5.0"
 
+embassy-net = { version = "0.6.0", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet"] }
+embassy-net-wiznet = { version = "0.3.0", features = ["defmt"] }
+static_cell = "2.1"
+
 [profile.release]
 debug = 2
